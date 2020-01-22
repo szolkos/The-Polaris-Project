@@ -3,7 +3,7 @@
 # Created: December 18, 2019
 # By: Scott Zolkos
 # Contact: szolkos@whrc.org
-# Background: Code for analyses and figures for the Polaris Aquatic survey 2015-2018
+# Background: Code for analyses and figures for the Polaris Aquatic survey 2015-2019
 #========================================================================================================#
 
   # Load packages
