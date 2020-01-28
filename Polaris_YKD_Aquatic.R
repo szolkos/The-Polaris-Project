@@ -1,12 +1,12 @@
 #========================================================================================================#
-# Polaris_YKD_Aquatic.R
+# Polaris_YKD_Aquatic.R ####
 # Created: December 18, 2019
 # By: Scott Zolkos
 # Contact: szolkos@whrc.org
 # Background: Code for analyses and figures for the Polaris Aquatic survey 2015-2019
 #========================================================================================================#
 
-  # Load packages
+##### Load packages ####
     library(Hmisc)
     library(gdata) # to bind columns with different number of rows
     library(vegan) # e.g. for rda function
@@ -25,53 +25,99 @@
     #library(svglite) # for exporting plots to PDF with axes labels containing with special glyphs e.g. permil
     library(tidyverse)
     
-  # Set working directory
+##### Set working directory #####
     dir <- "/Users/szolkos/Documents/Research/Projects/The Polaris Project/Analyses/Data/Data4R/"
     setwd(dir)
     
-########################
-### DATA PREPARATION ###
-########################
+
+#### DATA PREPARATION ####
     
   # Import data
-    ykd_aq <- read.csv(paste0(dir, "PolarisYKD_aquatic_2020_01_21.csv"), header=T)
+    ykd <- read.csv(paste0(dir, "PolarisYKD_aquatic_2020_01_28.csv"), header=T)
     
   # Convert concentrations to µM
-    ykd_aq$DOCuM <- ((ykd_aq$DOCmgL/1000)/12.0107)*1000000
-    ykd_aq$TDNuM <- ((ykd_aq$TDNmgL/1000)/14.0067)*1000000
-    ykd_aq$NO3uM <- ((ykd_aq$NO3ugL/1000000)/14.0067)*1000000
-    ykd_aq$NH4uM <- ((ykd_aq$NH4ugL/1000000)/14.0067)*1000000
-    ykd_aq$PO4uM <- ((ykd_aq$PO4ugL/1000000)/30.973762)*1000000
-    ykd_aq$SiuM <- ((ykd_aq$SimgL/1000)/28.0855)*1000000
+    ykd$DOCuM <- ((ykd$DOCmgL/1000)/12.0107)*1000000
+    ykd$TDNuM <- ((ykd$TDNmgL/1000)/14.0067)*1000000
+    ykd$DONuM <- ((ykd$DONmgL/1000)/14.0067)*1000000
+    ykd$NH4uM <- ((ykd$NH4ugL/1000000)/14.0067)*1000000
+    ykd$NO3uM <- ((ykd$NO3ugL/1000000)/14.0067)*1000000
+    ykd$PO4uM <- ((ykd$PO4ugL/1000000)/30.973762)*1000000
+    #ykd$SiuM <- ((ykd$SimgL/1000)/28.0855)*1000000
     
-  # Add sampling year
-    ykd_aq$Year <- paste0("20", substr(ykd_aq$Date,7,8)[ykd_aq$Date!="NA"])
-    ykd_aq$Year[ykd_aq$Year=="20NA"] <- NA
-    ykd_aq$Year <- as.numeric(ykd_aq$Year)
+  # Subset data
+    ykd <- drop.levels(subset(ykd, select=c(c("Year","Date","LatDD","LonDD","BurnYear","LandscapeCategory","WaterType","FenDetail","Atm","Temp","Cond","pH","DOpcnt","DOmgL","DOCuM","TDNuM","DONuM","NH4uM","NO3uM","PO4uM","CN","SR","SUVA","CO2ppm","CO2uM","CO2flux","CH4ppm","CH4uM","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","NDVI","Slope","NDWI","Area"))))
+    names(ykd)
     
   # Set factors
-    aq_envs <- c("porewater","stream","pond","lake")
+    #aq_envs <- c("porewater","stream","pond","lake")
+    
+########################
+### DATA EXPLORATION ###
+########################
+    
+  # Explore data: data structure and summaries
+    summary(ykd$LandscapeCategory)
+    summary(ykd$WaterType)
+    summary(ykd$FenDetail)
+    
+  # Subset data for FENS and PONDS, where samples were SURFACE water
+    ykd_sub <- drop.levels(subset(ykd, ykd$LandscapeCategory=="fen" & ykd$WaterType=="surface" | ykd$LandscapeCategory=="pond" & ykd$WaterType=="surface"))
+    ykd_sub$Year <- factor(ykd_sub$Year, levels=as.numeric(unique(ykd_sub$Year)))
+    summary(ykd_sub$LandscapeCategory); summary(ykd_sub$WaterType); summary(ykd_sub$FenDetail)
+    #ykd_df_test <- drop.levels(subset(ykd, select=c("Year","Date","LandscapeCategory","WaterType","FenDetail"), ykd$LandscapeCategory=="fen" & ykd$WaterType=="surface" | ykd$LandscapeCategory=="pond" & ykd$WaterType=="surface"))    
+    
+  # Explore data: simple graphs
+    ## Boxplot
+    ggplot(ykd_sub, aes(y=Temp, x=factor(LandscapeCategory), fill=FenDetail)) + # FenDetail, BurnYear, Year, LandscapeCategory
+      #geom_boxplot() +
+      geom_boxplot(aes(fill=factor(Year))) +
+      #scale_fill_manual(name="FenDetail", values=c("darkseagreen2","sienna3")) +
+      theme_bw() +
+      theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
+            panel.grid.minor=element_blank(),
+            panel.grid.major=element_blank(),
+            plot.background=element_rect(colour="white", size=1),
+            panel.border=element_rect(colour="black", fill=NA, size=1),
+            text=element_text(size=13)) +
+      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(legend.position=c(0.14,0.86)) + #, legend.justification=c("left","top")) +
+      theme(legend.title=element_blank()) +
+      theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
+      theme(plot.background=element_rect(fill='white')) +
+      theme(panel.background=element_rect(fill='white')) +
+      labs(y="DOC (µM)", x="")
+    
+    # ANOVA- test for differences between...
+    ## ... fen environments/ponds
+      unique(ykd_sub$FenDetail)
+      fit <- aov(Temp ~ FenDetail, ykd_sub)
+      TukeyHSD(fit)
+      par(mar=c(4.5,4.5,1,1), mfrow=c(2,2)); plot(fit)
+    ## ... burn year*fen environments/ponds
+      unique(ykd_sub$LandscapeCategory)
+      fit <- aov(Temp ~ BurnYear*LandscapeCategory, ykd_sub)
+      TukeyHSD(fit)
+      par(mar=c(4.5,4.5,1,1), mfrow=c(2,2)); plot(fit)
+    ## ... fen environments/ponds*year
+      unique(ykd_sub$LandscapeCategory)
+      fit <- aov(Temp ~ LandscapeCategory*Year, ykd_sub)
+      TukeyHSD(fit)
+      par(mar=c(4.5,4.5,1,1), mfrow=c(2,2)); plot(fit)
     
 ##########################
 ### GRAPHICAL ANAYLSES ###
 ##########################
     
-  # Subset
-    ykd_aq_sub <- drop.levels(subset(ykd_aq, select=c("Date","Year","Aqenv","BurnType","Temp","Cond","pH","DOpcnt","DOmgL","DOCuM","TDNuM","NO3uM","NH4uM","PO4uM","SiuM","SR","SUVA254","CN","d13DIC","dexcess"), ykd_aq$Aqenv!="river" & ykd_aq$Aqenv!="fen" & ykd_aq$BurnType!="Both"))
-    names(ykd_aq_sub)
-    
-  # Explore data
-    par(mar=c(4.5,4.5,1,1))
-    boxplot(ykd_aq_sub$dexcess~ykd_aq_sub$Aqenv, lwd=1.2, col="gray", las=2)
-    
 ### HYDROCHEMISTRY BY YEAR AND BURN TYPE, FOR EACH AQUATIC ENVIRONMENT
     
   # Subset  data for boxplot
     param <- "DOCuM"
-    bpdf_burn <- drop.levels(na.omit(subset(ykd_aq_sub, select=c("Date","Year","Aqenv","BurnType",param), ykd_aq_sub$BurnType=="Burned" | ykd_aq_sub$BurnType=="Control")))
+    bpdf_burn <- drop.levels(na.omit(subset(ykd_sub, select=c("Date","Year","Aqenv","BurnType",param), ykd_sub$BurnType=="Burned" | ykd_sub$BurnType=="Control")))
     bpdf_burn <- drop.levels(na.omit(subset(bpdf_burn, bpdf_burn$Aqenv=="lake" | bpdf_burn$Aqenv=="pond" | bpdf_burn$Aqenv=="stream" | bpdf_burn$Aqenv=="porewater")))
     bpdf <- bpdf_burn
-    #bpdf <- drop.levels(na.omit(subset(ykd_aq_sub, select=c("Date","Year","Aqenv","BurnType",param))))
+    #bpdf <- drop.levels(na.omit(subset(ykd_sub, select=c("Date","Year","Aqenv","BurnType",param))))
     bpdf$Aqenv <- factor(bpdf$Aqenv, levels=aq_envs)
     bpdf$BurnType <- factor(bpdf$BurnType, levels=c("Control","Burned"))
     dim(bpdf); summary(bpdf); range(na.omit(bpdf[5]))
