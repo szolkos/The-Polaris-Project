@@ -2,7 +2,13 @@
 title: "Polaris_YKD_aquatic"
 author: "Scott Zolkos"
 date: "1/28/2020"
-output: html_document
+output:
+  pdf_document: 
+    fig_height: 4
+    fig_width: 5
+  html_document: default
+editor_options: 
+  chunk_output_type: console
 ---
 
 Polaris_YKD_Aquatic.R
@@ -12,14 +18,17 @@ Contact: szolkos@whrc.org
 Background: Code for analyses and figures for the Polaris Aquatic survey 2015-2019.
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>. When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
+https://rmarkdown.rstudio.com/lesson-1.html
+https://rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf
+
 ```{r SETUP, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo=TRUE, results="hide")
 
 # Load packages ####
     library(Hmisc)
     library(gdata) # to bind columns with different number of rows
     library(vegan) # e.g. for rda function
-    library(ecodist)
+    library(ecodist) # for NMDS
     library(pvclust)
     library(ggfortify) # so ggplot can read PCA objects
     library(lubridate) # To convert from date to Julian day
@@ -33,6 +42,10 @@ knitr::opts_chunk$set(echo = TRUE)
     #library(Cairo) # for exporting plots to PDF with axes labels containing with special glyphs e.g. permil
     #library(svglite) # for exporting plots to PDF with axes labels containing with special glyphs e.g. permil
     library(tidyverse)
+    library(dplyr)
+    library(ggfortify) # so ggplot can read PCA objects
+    library(lme4) # for LMER (lmer)
+    library(lmerTest) # for LMER (lmer)
 
 # Set working directory #####
     dir <- "/Users/szolkos/Documents/Research/Projects/The Polaris Project/Analyses/Data/Data4R/"
@@ -41,7 +54,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Data preparation ####
   # Import data
     ykd <- read.csv(paste0(dir, "PolarisYKD_aquatic_2020_01_28.csv"), header=T)
-    
+
   # Convert concentrations to µM
     ykd$DOCuM <- ((ykd$DOCmgL/1000)/12.0107)*1000000
     ykd$TDNuM <- ((ykd$TDNmgL/1000)/14.0067)*1000000
@@ -51,15 +64,30 @@ knitr::opts_chunk$set(echo = TRUE)
     ykd$PO4uM <- ((ykd$PO4ugL/1000000)/30.973762)*1000000
     #ykd$SiuM <- ((ykd$SimgL/1000)/28.0855)*1000000
     
+  # Add sampling year
+    ykd$Year <- paste0("20", substr(ykd$Date,7,8)[ykd$Date!="NA"])
+    ykd$Year[ykd$Year=="20NA"] <- NA
+    ykd$Year <- as.numeric(ykd$Year)
+    
+  # Calculate d-excess, following Turner et al. (2014, DOI: 10.1002/ppp.1802): d-excess = d2H-8*d18O
+    ykd$dexcess <- ykd$d2hH2O-(8*ykd$d18oH2O)
+    
+  # Add burn history (BurnHx)
+    ykd$BurnHx <- as.vector(ykd$BurnYear); class(ykd$BurnHx[ykd$BurnHx=="2015"])
+    ykd$BurnHx[ykd$BurnHx=="2015"] <- "Burned"
+    ykd$BurnHx[ykd$BurnHx=="1972"] <- "Burned"
+    ykd$BurnHx[ykd$BurnHx=="Control"] <- "Unburned"
+    ykd$BurnHx[ykd$BurnHx==NA] <- NA
+    ykd$BurnHx <- factor(ykd$BurnHx , levels=c("Burned","Unburned"))
+    summary(ykd$BurnHx)
+    
   # Subset data
-    ykd <- drop.levels(subset(ykd, select=c(c("Year","Date","LatDD","LonDD","BurnYear","LandscapeCategory","WaterType","FenDetail","Atm","Temp","Cond","pH","DOpcnt","DOmgL","DOCuM","TDNuM","DONuM","NH4uM","NO3uM","PO4uM","CN","SR","SUVA","CO2ppm","CO2uM","CO2flux","CH4ppm","CH4uM","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","NDVI","Slope","NDWI","Area"))))
+    ykd <- drop.levels(subset(ykd, select=c(c("Year","Date","LatDD","LonDD","BurnHx","BurnYear","LandscapeCategory","WaterType","FenDetail","Atm","Temp","Cond","pH","DOpcnt","DOmgL","DOCuM","TDNuM","DONuM","NH4uM","NO3uM","PO4uM","CN","SR","SUVA","CO2ppm","CO2uM","CO2flux","CH4ppm","CH4uM","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","NDVI","Slope","NDWI","Area"))))
     names(ykd)
     
   # Set factors
-    #aq_envs <- c("porewater","stream","pond","lake")
     
 ```
-
 
 ```{r DATA EXPLORATION, echo=FALSE}
 
@@ -68,24 +96,24 @@ knitr::opts_chunk$set(echo = TRUE)
     summary(ykd$WaterType)
     summary(ykd$FenDetail)
     
-  # Subset data for FENS and PONDS, where samples were SURFACE water
-    ykd_sub <- drop.levels(subset(ykd, ykd$LandscapeCategory=="fen" & ykd$WaterType=="surface" | ykd$LandscapeCategory=="pond" & ykd$WaterType=="surface"))
-    ykd_sub$Year <- factor(ykd_sub$Year, levels=as.numeric(unique(ykd_sub$Year)))
-    summary(ykd_sub$LandscapeCategory); summary(ykd_sub$WaterType); summary(ykd_sub$FenDetail)
+  # Subset SURFACE water data for FENS and PONDS
+    ykd_surf <- drop.levels(subset(ykd, ykd$LandscapeCategory=="fen" & ykd$WaterType=="surface" | ykd$LandscapeCategory=="pond" & ykd$WaterType=="surface"))
+    ykd_surf$Year <- factor(ykd_surf$Year, levels=as.numeric(unique(ykd_surf$Year)))
+    summary(ykd_surf$LandscapeCategory); summary(ykd_surf$WaterType); summary(ykd_surf$FenDetail)
     #ykd_df_test <- drop.levels(subset(ykd, select=c("Year","Date","LandscapeCategory","WaterType","FenDetail"), ykd$LandscapeCategory=="fen" & ykd$WaterType=="surface" | ykd$LandscapeCategory=="pond" & ykd$WaterType=="surface"))    
     
-  # ANOVA: test for differences between...
+  # ANOVA: test for differences between... https://www.statmethods.net/stats/anova.html
     ## ... fen environments/ponds
-      unique(ykd_sub$FenDetail)
-      fit1 <- aov((dexcess) ~ FenDetail, ykd_sub)
+      unique(ykd_surf$FenDetail)
+      fit1 <- aov((d13cDIC) ~ FenDetail, ykd_surf)
       TukeyHSD(fit1)
     ## ... burn year*fen environments/ponds
-      unique(ykd_sub$LandscapeCategory)
-      fit2 <- aov((dexcess) ~ BurnYear*LandscapeCategory, ykd_sub)
+      unique(ykd_surf$LandscapeCategory)
+      fit2 <- aov((d13cDIC) ~ BurnYear*LandscapeCategory, ykd_surf)
       TukeyHSD(fit2)
     ## ... fen environments/ponds*year
-      unique(ykd_sub$LandscapeCategory)
-      fit3 <- aov((dexcess) ~ LandscapeCategory*Year, ykd_sub)
+      unique(ykd_surf$LandscapeCategory)
+      fit3 <- aov((d13cDIC) ~ LandscapeCategory*Year, ykd_surf)
       TukeyHSD(fit3)
     ## Plot desired fit, run Tukey HSD
       fit <- fit1
@@ -93,9 +121,9 @@ knitr::opts_chunk$set(echo = TRUE)
     
   # Explore data: simple graphs
     ## Boxplot
-    ggplot(ykd_sub, aes(y=(dexcess), x=factor(LandscapeCategory), fill=BurnYear)) + # FenDetail, BurnYear, Year
+    ggplot(ykd_surf, aes(y=(d13cDIC), x=factor(LandscapeCategory), fill=FenDetail)) + # FenDetail, BurnYear, Year
       #geom_boxplot() +
-      geom_boxplot(aes(fill=factor(BurnYear))) +
+      geom_boxplot(aes(fill=factor(Year))) +
       theme_bw() +
       theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
             panel.grid.minor=element_blank(),
@@ -111,123 +139,378 @@ knitr::opts_chunk$set(echo = TRUE)
       theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
       theme(plot.background=element_rect(fill='white')) +
       theme(panel.background=element_rect(fill='white')) +
-      labs(y="dexcess", x="")
+      labs(y="d13cDIC", x="")
+  
+  # Evaluate YEARs with hydrochemistry measurements for LANDSCAPE CATEGORY
+    lndscp <- na.omit(droplevels(subset(ykd, select=c("Year","LandscapeCategory"))))
+    #lndscp <- na.omit(droplevels(subset(ykd, select=c("Year","LandscapeCategory"), ykd$WaterType=="surface")))
+    lndscp$Year <- factor(lndscp$Year)
+    lndscp$LandscapeCategory <- factor(lndscp$LandscapeCategory, levels=c("peat plateau","drained lake","lake","pond","river","stream","fen"))
+    summary(lndscp); dim(lndscp)
+    
+    ggplot(lndscp, aes(y=factor(LandscapeCategory), x=factor(Year))) +
+      geom_point(aes(fill=Year, shape=Year), size=10, color="black", stroke=1) + # size=element_blank(), 
+      #scale_size_manual(values=length("LandscapeCategory")) +
+      scale_fill_manual(name="Year", values=rep("darkgray",5)) +
+      scale_shape_manual(name="Year", values=rep(22,5)) +
+      theme_bw() +
+      theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
+            panel.grid.minor=element_blank(),
+            panel.grid.major=element_blank(),
+            plot.background=element_rect(colour="white", size=1),
+            panel.border=element_rect(colour="black", fill=NA, size=1),
+            text=element_text(size=13)) +
+      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(axis.title.y=element_blank()) +
+      theme(axis.title.x=element_blank()) +
+      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(legend.position=c(20,20)) +
+      theme(legend.title=element_blank()) +
+      theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
+      theme(plot.background=element_rect(fill='white')) +
+      theme(panel.background=element_rect(fill='white'))
     
 ```
 
+```{r (1) C and nutrient variability across delta environments}
+
+# Some ggplot axis labels w/ units
+  {
+      #labs(y=expression(Temp~(degree*C)), x="")
+      #labs(y=expression(SiO[2]*~(µM)), x="")
+      #labs(y=expression(Slope~ratio~(italic(S)[R])), x="")
+      #labs(y=expression(SUVA[254]*~(L~mgC^-1*~m^-1), x=""), x="")
+      #labs(y="C:N (DOC:TDN)", x="")
+      #labs(y=expression(delta^"13"*"C-DIC (%VPDB)"), x="") # δ, ‰ | \u2030 # https://stackoverflow.com/questions/5293715/how-to-use-greek-symbols-in-ggplot2
+    }
+
+### HYDROCHEMISTRY BY YEAR AND BURN TYPE, FOR EACH AQUATIC ENVIRONMENT
+  
+  # Subset SURFACE water for FENS, STREAMS, LAKES, and PONDS
+    ykd_surface <- drop.levels(subset(ykd, ykd$WaterType=="surface"))
+    ykd_surface <- (drop.levels(subset(ykd_surface, ykd_surface$LandscapeCategory=="fen" | ykd_surface$LandscapeCategory=="stream" | ykd_surface$LandscapeCategory=="pond" | ykd_surface$LandscapeCategory=="lake")))
+    summary(ykd_surface$LandscapeCategory); dim(ykd_surface)
+  
+  # Subset PORE water for FENS and PEAT PLATEAUs
+    ykd_pore <- droplevels(subset(ykd, ykd$LandscapeCategory=="fen" & ykd$WaterType=="pore" | ykd$LandscapeCategory=="peat plateau" & ykd$WaterType=="pore"))
+    summary(ykd_pore$LandscapeCategory); dim(ykd_pore)
+    
+  # Subset  data for boxplot
+    df <- ykd_pore # ykd_surface OR ykd_pore (see above)
+    param <- "dexcess" # pH, DOpcnt, Cond, DOCuM, PO4uM, NH4uM, NO3uM, dexcess
+    bpdf <- drop.levels(na.omit(subset(df, select=c("Year","LandscapeCategory","BurnHx","BurnYear","FenDetail",param))))
+    bpdf$Year <- factor(bpdf$Year, levels=c("2015","2016","2017","2018","2019"))
+    bpdf$BurnYear <- factor(bpdf$BurnYear, levels=c("1972","2015","Control"))
+    bpdf$LandscapeCategory <- factor(bpdf$LandscapeCategory)
+    bpdf$FenDetail <- factor(bpdf$FenDetail)
+    summary(bpdf); dim(bpdf)
+  
+  ## Boxplot
+    ggplot(df, aes(y=dexcess, x=factor(LandscapeCategory:BurnHx), fill=FenDetail, linetype=BurnHx, color=BurnHx)) +
+      geom_boxplot(outlier.shape=NA, aes(fill=factor(FenDetail))) +
+      scale_color_manual(name="BurnHx", values=c("maroon","black")) +
+      scale_linetype_manual(name="BurnHx", values=c("solid","solid")) +
+      #scale_y_log10()+
+      theme_bw() +
+      theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
+            panel.grid.minor=element_blank(),
+            panel.grid.major=element_blank(),
+            plot.background=element_rect(colour="white", size=1),
+            panel.border=element_rect(colour="black", fill=NA, size=1),
+            text=element_text(size=13)) +
+      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      #theme(legend.position=c(0.14,0.92)) + #, legend.justification=c("left","top")) +
+      #theme(legend.title=element_blank()) +
+      #theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
+      theme(legend.position="none") +
+      theme(plot.background=element_rect(fill='white')) +
+      theme(panel.background=element_rect(fill='white')) +
+      labs(y=param, x="") +
+      geom_point(position=position_jitterdodge(), alpha=0.2, col="black")
+    
+```
+
+```{r (2) Effects of fire Hx on lake chemistry}
+# Short-term and legacy effects of fire on lake chemistry
+  # Subset lake data ####
+    ykd_lakes_full <- drop.levels(subset(ykd,select=c("Year","BurnYear","BurnHx","Temp","Cond","pH","DOpcnt","DOCuM","DONuM","NH4uM", "NO3uM","PO4uM","SR","SUVA","CO2uM","CH4uM","CO2flux","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","CN","TDNuM"),ykd$LandscapeCategory=="lake"))
+    ykd_lakes_full$Year <- factor(ykd_lakes_full$Year, levels=c("2016","2017","2018","2019"))
+    ykd_lakes_full$BurnYear <- factor(ykd_lakes_full$BurnYear, levels=c("Control","1972","2015"))
+    ykd_lakes_full$BurnHx <- factor(ykd_lakes_full$BurnHx, levels=c("Burned","Unburned"))
+  ## Summmary stats for select constituents
+    na.omit(drop.levels(subset(ykd_lakes_full, select=c("Year","BurnYear","CH4flux"))))
+    summary(na.omit(drop.levels(subset(ykd_lakes_full, select=c("Year","BurnYear","CO2flux"))))$Year)
+
+  # Omit ("CO2flux","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","CN","TDNuM")
+    ykd_lakes <- drop.levels(subset(ykd,select=c("Year","BurnYear","BurnHx","Temp","Cond","pH","DOpcnt","DOCuM","DONuM","NH4uM", "NO3uM","PO4uM","SR","SUVA","CO2uM","CH4uM"),ykd$LandscapeCategory=="lake"))
+  # Store factors
+    ykd_lakes$Year <- factor(ykd_lakes$Year, levels=c("2016","2017","2018","2019"))
+    ykd_lakes$BurnYear <- factor(ykd_lakes$BurnYear, levels=c("Control","1972","2015"))
+    ykd_lakes$BurnHx <- factor(ykd_lakes$BurnHx, levels=c("Burned","Unburned"))
+  # Summarize
+    names(ykd_lakes); dim(ykd_lakes); dim(na.omit(ykd_lakes))
+  # Omit NAs
+    ykd_lakes <- na.omit(ykd_lakes)
+  # QA/QC
+    ykd_lakes$CO2uM[ykd_lakes$CO2uM==0] <- NA
+    ykd_lakes$CH4uM[ykd_lakes$CH4uM==0] <- NA
+  # Center and scale variables (calculate Z scores for PCA); not required, this is done by PCA
+    #ykd_lakes <- cbind(ykd_lakes[1:2],as.data.frame(scale(ykd_lakes[3:ncol(ykd_lakes)], center=T, scale=T)))
+  
+  # Evaluate correlations between variables
+    {cordf <- round(cor(ykd_lakes[3:ncol(ykd_lakes)], use="pairwise.complete.obs"), 4)
+    p.mat <- cor.mtest(ykd_lakes[3:ncol(ykd_lakes)])
+    corrplot(cordf, type="lower", order="hclust", diag=F, number.cex=0.6, tl.col="black", tl.cex=0.75, cl.cex=0.8, p.mat=p.mat, sig.level=0.05, col=brewer.pal(n=10, name="RdYlBu"))
+    #pairs(ykd_lakes[3:ncol(ykd_lakes)], lwd=2, cex=1.5)
+    }
+    
+  # PCA ####
+  # Build PCA, w/ symbols colored by year
+    ykd_lake_pca <- princomp(ykd_lakes[3:ncol(ykd_lakes)], cor=T)
+    head(ykd_lake_pca$loadings) # Inspect loadings
+    head(ykd_lake_pca$score) # Inspect PC scores
+    summary(ykd_lake_pca)
+    
+  # Plot PCA results- autplot (export as 5.4" x 7" PDF)
+    autoplot(ykd_lake_pca, data=ykd_lakes, 
+             mapping=aes(shape=factor(ykd_lakes$BurnYear), fill=factor(ykd_lakes$Year), col="black"),
+             loadings=T, loadings.colour="black", loadings.label=T, loadings.label.size=4, loadings.label.colour="black") +
+      scale_y_continuous(limits=c(-0.3,0.4), breaks=seq(-0.2,0.4,0.2)) +
+      scale_x_continuous(limits=c(-0.2,0.6), breaks=seq(-0.2,0.6,0.2)) +
+      geom_hline(yintercept=0, col="darkgray", lwd=1, lty=2) +
+      geom_vline(xintercept=0, col="darkgray", lwd=1, lty=2) +
+      geom_point(aes(fill=factor(ykd_lakes$Year), shape=factor(ykd_lakes$BurnYear), size=1.6), color="black", stroke=1) +
+      scale_fill_manual(name="Year", values=c("red","orange","yellow","green","blue")) +
+      scale_shape_manual(name="BurnYear", values=c(21,23,22)) +
+      theme_bw() +
+      theme(plot.margin=unit(c(0.1,0.1,0.1,0.1), "in"),
+            panel.grid.minor=element_blank(),
+            panel.grid.major=element_blank(),
+            plot.background=element_rect(colour="white", size=1),
+            panel.border=element_rect(colour="black", fill=NA, size=1),
+            text=element_text(size=14)) +
+      theme(axis.text.x=element_text(angle=0, hjust=0.5, colour="black")) +
+      theme(axis.text.y=element_text(angle=0, hjust=0.5, colour="black")) +
+      theme(legend.position="none") +
+      theme(plot.background=element_rect(fill='white')) +
+      theme(panel.background=element_rect(fill='white')) +
+      labs(y="PC 2 (15.0%)", x="PC 1 (24.4%)")
+    
+    (na.omit(subset(ykd_lakes, select=c("Year","DONuM"), ykd_lakes$Year=="2019")))
+    na.omit(subset(ykd, select=c("Year","Date","DONuM"), ykd$DONuM <= 50))
+    
+  # Boxplots ####
+  ## Parameter by year
+    ggplot(ykd_lakes, aes(y=(CO2uM), x=factor(Year))) +
+    geom_boxplot(aes(fill=factor(Year))) +
+    theme_bw() +
+    theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
+          panel.grid.minor=element_blank(),
+          panel.grid.major=element_blank(),
+          plot.background=element_rect(colour="white", size=1),
+          panel.border=element_rect(colour="black", fill=NA, size=1),
+          text=element_text(size=13)) +
+    theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+    theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+    theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+    theme(legend.position=c(0.14,0.86)) +
+    theme(legend.title=element_blank()) +
+    theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
+    theme(plot.background=element_rect(fill='white')) +
+    theme(panel.background=element_rect(fill='white')) +
+    labs(y=expression(CO[2]~(µM)), x="")
+    #labs(y="DON (µM)", x="")
+    labs(y=expression(PO[4]^"3-"~(µM)), x="")
+  
+  ## *Surface water chemistry: Year > LandscapeCategory > BurnHx* ####
+    ## Subset data
+    param <- "pH"
+    ykd_sub2 <- droplevels(subset(ykd, select=param, ykd$LandscapeCategory=="fen" | ykd$LandscapeCategory=="stream" | ykd$LandscapeCategory=="pond" | ykd$LandscapeCategory=="lake"))
+      ykd_sub2 <- droplevels(subset(ykd_sub2, ykd_sub2$WaterType=="surface"))
+    ## Store Year as factor
+      ykd_sub2$Year <- factor(ykd_sub2$Year, levels=c("2016","2017","2018","2019"))
+    ## Store BurnYear as factor
+      ykd_sub2$BurnYear <- factor(ykd_sub2$BurnYear, levels=c("Control","1972","2015"))
+    ## Store BurnHx as factor
+      ykd_sub2$BurnHx <- factor(ykd_sub2$BurnHx, levels=c("Burned","Unburned"))
+    ## Store LandscapeCategory as factor
+      ykd_sub2$LandscapeCategory <- factor(ykd_sub2$LandscapeCategory, levels=c("fen","stream","pond","lake"))
+    ## Store FenDetail as factor
+      ykd_sub2$FenDetail <- as.character(ykd_sub2$FenDetail)
+      ykd_sub2$FenDetail[is.na(ykd_sub2$FenDetail)] <- "other"
+      ykd_sub2$FenDetail[ykd_sub2$FenDetail=="neither"] <- "other"
+      ykd_sub2$FenDetail <- factor(ykd_sub2$FenDetail)
+    ## Plot it
+    ggplot(ykd_sub2, aes(y=pH, x=Year, fill=LandscapeCategory, color=BurnHx)) + # linetype=FenDetail
+      geom_boxplot(outlier.shape=NA, aes(fill=factor(LandscapeCategory))) +
+      scale_fill_manual(name="LandscapeCategory", values=c("brown","lightblue","blue","darkblue",rep("gray",4))) +
+      scale_color_manual(name="BurnHx", values=c("red","black")) +
+      #scale_linetype_manual(name="FenDetail", values=c("solid","solid","solid","solid")) +
+      theme_bw() +
+      theme(plot.margin=unit(c(0.2,0.2,0.2,0.2), "in"),
+            panel.grid.minor=element_blank(),
+            panel.grid.major=element_blank(),
+            plot.background=element_rect(colour="white", size=1),
+            panel.border=element_rect(colour="black", fill=NA, size=1),
+            text=element_text(size=13)) +
+      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      theme(axis.title.x=element_blank()) +
+      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+      #theme(legend.position="none") +
+      theme(plot.background=element_rect(fill='white')) +
+      theme(panel.background=element_rect(fill='white')) +
+      labs(y="pH", x="") +
+      geom_point(position=position_jitterdodge(), alpha=0.2, col="black")
+    
+    
+  # ANOVA ####
+    round(tapply(ykd_lakes$PO4uM, ykd_lakes$Year, FUN=median, na.rm=T),2)
+    round(tapply(ykd_lakes$PO4uM, ykd_lakes$Year, FUN=mean, na.rm=T),2)
+    round(tapply(ykd_lakes$PO4uM, ykd_lakes$Year, FUN=sd, na.rm=T),2)
+    
+    summary(subset(ykd_lakes, select=c("Year","DONuM")))
+    
+    unique(ykd_lakes$Year)
+    fit <- aov((DONuM) ~ Year, ykd_lakes)
+    fit <- aov((PO4uM) ~ Year, ykd_lakes)
+    TukeyHSD(fit)
+    
+  # LMER ####
+      ykd_lakes_sub <- drop.levels(subset(ykd_lakes, ykd_lakes$Year!="2016"))
+    # Develop models
+      ykd_lakes_lmer <- lmer(log(CO2uM) ~ (DOCuM) + (NH4uM) + (CH4uM) + (1|Year) + (1|BurnYear), data=ykd_lakes) # Random intercept model
+    # Model validation 
+    ## Explore model fit
+      par(mfrow=c(1,1), mar=c(4.5,4.5,1,1))#, mfrow=c(2,2))
+    ## Inspect heteroskedasticity of residuals- there should be no patterns, e.g. 'fans' or 'S' shapes
+      plot(ykd_lakes_lmer)
+    ## Inspect distribution normality of residuals- should be fairly linear, close to 1:1 line
+      par(mfrow=c(1,1), mar=c(4.5,4.5,1,1))
+      qqnorm(resid(ykd_lakes_lmer)); abline(0,1, lwd=2, lty=2, col="red")
+    ## Extract summary statistics from final model
+      lmer <- ykd_lakes_lmer
+      summary(lmer)
+    ## Return table of difference b/w LS means for fixed effects
+      difflsmeans(lmer, test.effs=NULL, ddf="Satterthwaite")
+
+```
+
+```{r (3) Effects of recent fire on fen hydrochemistry}
+
+# Short-term and legacy effects of fire on fen chemistry
+  # Subset fen data ####
+    ykd_fens_full <- drop.levels(subset(ykd,select=c("Year","BurnYear","FenDetail","Temp","Cond","pH","DOpcnt","DOCuM","DONuM","NH4uM", "NO3uM","PO4uM","SR","SUVA","CO2uM","CH4uM","CO2flux","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","CN","TDNuM"),ykd$LandscapeCategory=="fen"))
+    ykd_fens_full <- droplevels(subset(ykd_fens_full, ykd_fens_full$FenDetail!="neither"))
+    ykd_fens_full$Year <- factor(ykd_fens_full$Year, levels=c("2016","2017","2018","2019"))
+    ykd_fens_full$BurnYear <- factor(ykd_fens_full$BurnYear, levels=c("Control","1972","2015"))
+    ykd_fens_full$FenDetail <- factor(ykd_fens_full$FenDetail, levels=c("channel","fenpond","PW"))
+
+  # Omit ("CO2flux","CH4flux","d13cDIC","d13cCH4","d2hH2O","d18oH2O","dexcess","CN","TDNuM")
+    ykd_fens <- drop.levels(subset(ykd_fens_full,select=c("Year","BurnYear","FenDetail","Cond","pH","DOpcnt","DOCuM","DONuM","NH4uM", "NO3uM","PO4uM","SR","SUVA","CO2uM","CH4uM")))
+  # Store factors
+    ykd_fens$Year <- factor(ykd_fens$Year, levels=c("2016","2017","2018","2019"))
+    ykd_fens$BurnYear <- factor(ykd_fens$BurnYear, levels=c("Control","1972","2015"))
+    ykd_fens$FenDetail <- factor(ykd_fens$FenDetail, levels=c("channel","fenpond","PW"))
+  # Summarize
+    names(ykd_fens); dim(ykd_fens); dim(na.omit(ykd_fens))
+  # Omit NAs
+    ykd_fens <- na.omit(ykd_fens)
+
+  # PCA ####
+  # Build PCA, w/ symbols colored by year
+    ykd_fen_pca <- princomp(ykd_fens[4:ncol(ykd_fens)], cor=T)
+    head(ykd_fen_pca$loadings) # Inspect loadings
+    head(ykd_fen_pca$score) # Inspect PC scores
+    summary(ykd_fen_pca)
+    
+  # Plot PCA results- autplot (export as 5.4" x 7" PDF)
+    autoplot(ykd_fen_pca, data=ykd_fens, 
+           mapping=aes(shape=factor(ykd_fens$BurnYear), fill=factor(ykd_fens$Year), col="black"),
+           loadings=T, loadings.colour="black", loadings.label=T, loadings.label.size=4, loadings.label.colour="black") +
+    scale_y_continuous(limits=c(-0.5,0.4), breaks=seq(-0.4,0.4,0.2)) +
+    scale_x_continuous(limits=c(-0.3,0.4), breaks=seq(-0.2,0.4,0.2)) +
+    geom_hline(yintercept=0, col="darkgray", lwd=1, lty=2) +
+    geom_vline(xintercept=0, col="darkgray", lwd=1, lty=2) +
+    geom_point(aes(fill=factor(ykd_fens$Year), shape=factor(ykd_fens$BurnYear), size=1.6), color="black", stroke=1) +
+    scale_fill_manual(name="Year", values=c("red","orange","yellow","green","blue")) +
+    scale_shape_manual(name="BurnYear", values=c(21,23,22)) +
+    theme_bw() +
+    theme(plot.margin=unit(c(0.1,0.1,0.1,0.1), "in"),
+          panel.grid.minor=element_blank(),
+          panel.grid.major=element_blank(),
+          plot.background=element_rect(colour="white", size=1),
+          panel.border=element_rect(colour="black", fill=NA, size=1),
+          text=element_text(size=14)) +
+    theme(axis.text.x=element_text(angle=0, hjust=0.5, colour="black")) +
+    theme(axis.text.y=element_text(angle=0, hjust=0.5, colour="black")) +
+    theme(legend.position="none") +
+    theme(plot.background=element_rect(fill='white')) +
+    theme(panel.background=element_rect(fill='white')) +
+    labs(y="PC 2 (14.1%)", x="PC 1 (28.7%)")
+
+  # RDA ####
+    # Subset chemistry and landscape variables
+      ykd_fens_chem <- drop.levels(subset(ykd_fens,select=c("Cond","pH","DOpcnt","DOCuM","DONuM","NH4uM","NO3uM","PO4uM","SR","SUVA","CO2uM","CH4uM")))
+      ykd_fens_chem <- scale(ykd_fens_chem)
+      ykd_fens_landscape <- drop.levels(subset(ykd_fens, select=c("Year","BurnYear","FenDetail")))
+    # Run RDA
+      ykd_fens_rda <- rda(ykd_fens_chem ~ Year + BurnYear + FenDetail, ykd_fens_landscape)
+    
+    # Extract biplot scores for RDA1 and RDA2 as matrix
+      biplot_scores <- as.data.frame(summary(ykd_fens_rda)[[4]][,1:2])
+      #rownames(biplot_scores) <- c("Year","BurnYear","FenDetail")
+      biplot_scores$Parameter <- rownames(biplot_scores)
+    
+  # Plot it- export as 4" x 5" landscape PDF
+    par(mar=c(4.5,4.5,1,1))
+    plot(ykd_fens_rda, cex.axis=1.1, cex.lab=1.2, type="n", ylim=c(-1.5,2))
+    points(x=scores(ykd_fens_rda)$sites[,1], y=scores(ykd_fens_rda)$sites[,2], cex=1.5, lwd=1.2, asp=1, col=c("black"), pch=21, bg="gray", xlab="RDA1", ylab="RDA2", cex.axis=1.2, cex.lab=1.5) # Colored biplot
+    text(x=scores(ykd_fens_rda)$sites[,1], y=scores(ykd_fens_rda)$sites[,2], cex=1, pos=4, labels=ykd_fens$Site)
+    text(x=scores(ykd_fens_rda)$species[,1], y=scores(ykd_fens_rda)$species[,2], labels=rownames(scores(ykd_fens_rda)$species), cex=1, pos=3, col="red")
+    text(x=biplot_scores$RDA1, y=biplot_scores$RDA2, labels=rownames(biplot_scores), cex=1, pos=3, col="blue")
+    
+    
+    
+  # Boxplots ####
+    ggplot(ykd_fens, aes(y=(PO4uM), x=factor(Year))) +
+    geom_boxplot(aes(fill=factor(Year))) +
+    theme_bw() +
+    theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
+          panel.grid.minor=element_blank(),
+          panel.grid.major=element_blank(),
+          plot.background=element_rect(colour="white", size=1),
+          panel.border=element_rect(colour="black", fill=NA, size=1),
+          text=element_text(size=13)) +
+    theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+    theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+    theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+    theme(legend.position=c(0.14,0.86)) +
+    theme(legend.title=element_blank()) +
+    theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
+    theme(plot.background=element_rect(fill='white')) +
+    theme(panel.background=element_rect(fill='white')) +
+    #labs(y="DON (µM)", x="")
+    labs(y=expression(PO[4]^"3-"~(µM)), x="")
+    
+  # ANOVA ####
+    round(tapply(ykd_fens$PO4uM, ykd_fens$Year, FUN=median, na.rm=T),2)
+    round(tapply(ykd_fens$PO4uM, ykd_fens$Year, FUN=mean, na.rm=T),2)
+    round(tapply(ykd_fens$PO4uM, ykd_fens$Year, FUN=sd, na.rm=T),2)
+    
+    summary(subset(ykd_fens, select=c("Year","DONuM")))
+    
+    unique(ykd_fens$Year)
+    fit <- aov((DONuM) ~ Year, ykd_fens)
+    fit <- aov((PO4uM) ~ Year, ykd_fens)
+    TukeyHSD(fit)
+    
+```
 
 ```{r GRAPHICAL ANAYLSES}
 
-### HYDROCHEMISTRY BY YEAR AND BURN TYPE, FOR EACH AQUATIC ENVIRONMENT
-    
-  # Subset  data for boxplot
-    param <- "DOCuM"
-    bpdf_burn <- drop.levels(na.omit(subset(ykd_sub, select=c("Date","Year","Aqenv","BurnType",param), ykd_sub$BurnType=="Burned" | ykd_sub$BurnType=="Control")))
-    bpdf_burn <- drop.levels(na.omit(subset(bpdf_burn, bpdf_burn$Aqenv=="lake" | bpdf_burn$Aqenv=="pond" | bpdf_burn$Aqenv=="stream" | bpdf_burn$Aqenv=="porewater")))
-    bpdf <- bpdf_burn
-    #bpdf <- drop.levels(na.omit(subset(ykd_sub, select=c("Date","Year","Aqenv","BurnType",param))))
-    bpdf$Aqenv <- factor(bpdf$Aqenv, levels=aq_envs)
-    bpdf$BurnType <- factor(bpdf$BurnType, levels=c("Control","Burned"))
-    dim(bpdf); summary(bpdf); range(na.omit(bpdf[5]))
-  
-  # Explore trends by study Year and BurnType
-  ## Subset  data
-    bpdf_sub <- drop.levels(subset(bpdf, bpdf$Aqenv=="porewater"))
-    bpdf_sub$BurnType <- factor(bpdf_sub$BurnType, levels=c("Control","Burned"))
-    bpdf_sub$Year <- factor(bpdf_sub$Year, levels=c("2015","2016","2017","2018","2019"))
-    
-  ## Boxplot
-    ggplot(bpdf_sub, aes(y=DOCuM, x=factor(Year), fill=BurnType)) +
-      geom_boxplot(aes(fill=factor(BurnType))) +
-      scale_fill_manual(name="Treatment", values=c("darkseagreen2","sienna3")) +
-      #scale_y_log10(limits=c(0.1,1000), breaks=c(1,10,100,1000)) + # Cond
-      #scale_y_log10(limits=c(7,1000), breaks=c(10,100,1000)) + # TDNuM
-      #scale_y_log10(limits=c(0.01,30), breaks=c(0.01,0.1,1,10), labels=NotFancy) + # NO3uM
-      #scale_y_log10(limits=c(0.01,1000), breaks=c(0.1,1,10,100,1000), labels=NotFancy) + # NH4uM
-      #scale_y_log10(limits=c(1,100), breaks=c(1,10,100)) + # SiuM
-      #scale_y_continuous(limits=c(0,0.8), breaks=seq(0,0.8,0.2)) + # PO4uM
-      #scale_y_continuous(limits=c(0,20), breaks=c(0,2,4,6,8,10,20)) + # SUVA254
-      #scale_y_log10(limits=c(1,100), breaks=c(1,5,10,20,30,40,50,100)) + # CN
-      theme_bw() +
-      theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
-            panel.grid.minor=element_blank(),
-            panel.grid.major=element_blank(),
-            plot.background=element_rect(colour="white", size=1),
-            panel.border=element_rect(colour="black", fill=NA, size=1),
-            text=element_text(size=13)) +
-      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
-      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-            #axis.text.y.right=element_text(color="grey40"),
-            #axis.title.y.right=element_text(margin=margin(t=0, r=0, b=0, l=10), color="grey40")) +
-      #theme(legend.position="none") +
-      theme(legend.position=c(0.14,0.92)) + #, legend.justification=c("left","top")) +
-      theme(legend.title=element_blank()) +
-      theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
-      theme(plot.background=element_rect(fill='white')) +
-      theme(panel.background=element_rect(fill='white')) +
-      #labs(y=expression(Temp~(degree*C)), x="")
-      #labs(y=expression(Conductivity~(µS~cm^-1)), x="")
-      #labs(y="pH", x="")
-      #labs(y="Dissolved oxygen (% saturation)", x="")
-      labs(y="DOC (µM)", x="")
-      #labs(y="TDN (µM)", x="")
-      #labs(y=expression(NO[3]^"-"*~(µM)), x="")
-      #labs(y=expression(NH[4]^"+"*~(µM)), x="")
-      #labs(y=expression(PO[4]^"3-"*~(µM)), x="")
-      #labs(y=expression(SiO[2]*~(µM)), x="")
-      #labs(y=expression(Slope~ratio~(italic(S)[R])), x="")
-      #labs(y=expression(SUVA[254]*~(L~mgC^-1*~m^-1), x=""), x="")
-      #labs(y="C:N (DOC:TDN)", x="")
-      #labs(y=expression(delta^"13"*"C-DIC (%VPDB)"), x="") # δ, ‰ | \u2030 # https://stackoverflow.com/questions/5293715/how-to-use-greek-symbols-in-ggplot2
-      #labs(y="d-excess", x="")
-    
-    
-### HYDROCHEMISTRY BY YEAR
-    
-  # Explore trends by year
-    ggplot(bpdf, aes(y=pH, x=Aqenv, fill=factor(Year))) + 
-      geom_boxplot(aes(fill=factor(Year))) +
-      scale_fill_manual(name="Treatment", values=c("red","orange","yellow","green","blue")) +
-      #scale_y_log10(limits=c(0.1,1000), breaks=c(1,10,100,1000)) + # Cond
-      #scale_y_log10(limits=c(7,1000), breaks=c(10,100,1000)) + # TDNuM
-      #scale_y_log10(limits=c(0.01,30), breaks=c(0.01,0.1,1,10), labels=NotFancy) + # NO3uM
-      #scale_y_log10(limits=c(0.01,1000), breaks=c(0.1,1,10,100,1000), labels=NotFancy) + # NH4uM
-      #scale_y_log10(limits=c(1,100), breaks=c(1,10,100)) + # SiuM
-      #scale_y_continuous(limits=c(0,0.8), breaks=seq(0,0.8,0.2)) + # PO4uM
-      #scale_y_continuous(limits=c(0,20), breaks=c(0,2,4,6,8,10,20)) + # SUVA254
-      #scale_y_log10(limits=c(1,100), breaks=c(1,5,10,20,30,40,50,100)) + # CN
-      theme_bw() +
-      theme(plot.margin=unit(c(0.1,0.1,0,0.1), "in"),
-            panel.grid.minor=element_blank(),
-            panel.grid.major=element_blank(),
-            plot.background=element_rect(colour="white", size=1),
-            panel.border=element_rect(colour="black", fill=NA, size=1),
-            text=element_text(size=13)) +
-      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
-      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-      theme(legend.position=c(0.14,0.9)) + #, legend.justification=c("left","top")) +
-      theme(legend.title=element_blank()) +
-      theme(legend.background=element_rect(fill=FALSE, colour=FALSE)) +
-      theme(plot.background=element_rect(fill='white')) +
-      theme(panel.background=element_rect(fill='white')) +
-      #labs(y=expression(Temp~(degree*C)), x="")
-      #labs(y=expression(Conductivity~(µS~cm^-1)), x="")
-      labs(y="pH", x="")
-      #labs(y="Dissolved oxygen (% saturation)", x="")
-      #labs(y="DOC (µM)", x="")
-      #labs(y="TDN (µM)", x="")
-      #labs(y=expression(NO[3]^"-"*~(µM)), x="")
-      #labs(y=expression(NH[4]^"+"*~(µM)), x="")
-      #labs(y=expression(PO[4]^"3-"*~(µM)), x="")
-      #labs(y=expression(SiO[2]*~(µM)), x="")
-      #labs(y=expression(Slope~ratio~(italic(S)[R])), x="")
-      #labs(y=expression(SUVA[254]*~(L~mgC^-1*~m^-1), x=""), x="")
-      #labs(y="C:N (DOC:TDN)", x="")
-      #labs(y=expression(delta^"13"*"C-DIC (%VPDB)"), x="") # δ, ‰ | \u2030 # https://stackoverflow.com/questions/5293715/how-to-use-greek-symbols-in-ggplot2
-      #labs(y="d-excess", x="")
-    
 ```
 
 ```{r OTHER}
