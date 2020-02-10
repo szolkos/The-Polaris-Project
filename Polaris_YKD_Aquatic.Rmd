@@ -47,6 +47,12 @@ knitr::opts_chunk$set(echo=TRUE, results="hide")
     library(lme4) # for LMER (lmer)
     library(lmerTest) # for LMER (lmer)
 
+# Set functions #####
+  NotFancy <- function(l) {
+   l <- format(l, scientific = FALSE)
+   parse(text=l)
+  }
+
 # Set working directory #####
     dir <- "/Users/szolkos/Documents/Research/Projects/The Polaris Project/Analyses/Data/Data4R/"
     setwd(dir)
@@ -324,48 +330,110 @@ knitr::opts_chunk$set(echo=TRUE, results="hide")
     #labs(y="DON (µM)", x="")
     labs(y=expression(PO[4]^"3-"~(µM)), x="")
   
-  ## *Surface water chemistry: Year > LandscapeCategory > BurnHx* ####
+  ## *Surface water chemistry ####
     ## Subset data
-    param <- "pH"
-    ykd_sub2 <- droplevels(subset(ykd, select=param, ykd$LandscapeCategory=="fen" | ykd$LandscapeCategory=="stream" | ykd$LandscapeCategory=="pond" | ykd$LandscapeCategory=="lake"))
+      param <- "CH4uM" # pH, DOmgL, Cond, DOCuM, NH4uM, NO3uM, PO4uM, CO2uM, CH4uM, dexcess
+      ykd_sub2 <- droplevels(subset(ykd, select=c("Year","LandscapeCategory","BurnYear","BurnHx","FenDetail","WaterType",param), ykd$LandscapeCategory=="fen" | ykd$LandscapeCategory=="stream" | ykd$LandscapeCategory=="pond" | ykd$LandscapeCategory=="lake"))
       ykd_sub2 <- droplevels(subset(ykd_sub2, ykd_sub2$WaterType=="surface"))
     ## Store Year as factor
-      ykd_sub2$Year <- factor(ykd_sub2$Year, levels=c("2016","2017","2018","2019"))
+      ykd_sub2$Year <- factor(ykd_sub2$Year)##, levels=c("2016","2017","2018","2019"))
     ## Store BurnYear as factor
-      ykd_sub2$BurnYear <- factor(ykd_sub2$BurnYear, levels=c("Control","1972","2015"))
+      ykd_sub2$BurnYear <- factor(ykd_sub2$BurnYear)#, levels=c("Control","1972","2015"))
     ## Store BurnHx as factor
       ykd_sub2$BurnHx <- factor(ykd_sub2$BurnHx, levels=c("Burned","Unburned"))
     ## Store LandscapeCategory as factor
-      ykd_sub2$LandscapeCategory <- factor(ykd_sub2$LandscapeCategory, levels=c("fen","stream","pond","lake"))
+      ykd_sub2$LandscapeCategory <- factor(ykd_sub2$LandscapeCategory)#, levels=c("fen","stream","pond","lake"))
     ## Store FenDetail as factor
       ykd_sub2$FenDetail <- as.character(ykd_sub2$FenDetail)
       ykd_sub2$FenDetail[is.na(ykd_sub2$FenDetail)] <- "other"
       ykd_sub2$FenDetail[ykd_sub2$FenDetail=="neither"] <- "other"
       ykd_sub2$FenDetail <- factor(ykd_sub2$FenDetail)
-    ## Plot it
-    ggplot(ykd_sub2, aes(y=pH, x=Year, fill=LandscapeCategory, color=BurnHx)) + # linetype=FenDetail
-      geom_boxplot(outlier.shape=NA, aes(fill=factor(LandscapeCategory))) +
-      scale_fill_manual(name="LandscapeCategory", values=c("brown","lightblue","blue","darkblue",rep("gray",4))) +
-      scale_color_manual(name="BurnHx", values=c("red","black")) +
-      #scale_linetype_manual(name="FenDetail", values=c("solid","solid","solid","solid")) +
-      theme_bw() +
-      theme(plot.margin=unit(c(0.2,0.2,0.2,0.2), "in"),
-            panel.grid.minor=element_blank(),
-            panel.grid.major=element_blank(),
-            plot.background=element_rect(colour="white", size=1),
-            panel.border=element_rect(colour="black", fill=NA, size=1),
-            text=element_text(size=13)) +
-      theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
-      theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-      theme(axis.title.x=element_blank()) +
-      theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
-      #theme(legend.position="none") +
-      theme(plot.background=element_rect(fill='white')) +
-      theme(panel.background=element_rect(fill='white')) +
-      labs(y="pH", x="") +
-      geom_point(position=position_jitterdodge(), alpha=0.2, col="black")
+      range(na.omit(subset(ykd_sub2, select=param)))
     
-    
+      
+    ## Plot it: Year > LandscapeCategory > BurnHx* -- ALL LANDSCAPE CATEGORIES
+      ggplot(ykd_sub2, aes(y=pH, x=Year, fill=LandscapeCategory, color=BurnHx)) + # linetype=FenDetail
+        geom_boxplot(outlier.shape=NA, aes(fill=factor(LandscapeCategory))) +
+        scale_fill_manual(name="LandscapeCategory", values=c("brown","lightblue","blue","darkblue",rep("gray",4))) +
+        scale_color_manual(name="BurnHx", values=c("red","black")) +
+        #scale_linetype_manual(name="FenDetail", values=c("solid","solid","solid","solid")) +
+        theme_bw() +
+        theme(plot.margin=unit(c(0.2,0.2,0.2,0.2), "in"),
+              panel.grid.minor=element_blank(),
+              panel.grid.major=element_blank(),
+              plot.background=element_rect(colour="white", size=1),
+              panel.border=element_rect(colour="black", fill=NA, size=1),
+              text=element_text(size=13)) +
+        theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+        theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        theme(axis.title.x=element_blank()) +
+        theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        #theme(legend.position="none") +
+        theme(plot.background=element_rect(fill='white')) +
+        theme(panel.background=element_rect(fill='white')) +
+        labs(y=param, x="") +
+        geom_point(position=position_jitterdodge(), alpha=0.2, col="black")
+
+      
+    ## Plot it: Year > BurnHx*, separately LandscapeCategory -- FENS
+      landcat <- "fen"
+      plot_df <- droplevels(na.omit(subset(ykd_sub2, select=c("Year","BurnHx","FenDetail",param))))
+      ykd_boxplot <- ggplot(plot_df, aes(y=CH4uM, x=Year, fill=FenDetail, color=BurnHx)) +
+        geom_boxplot(outlier.shape=NA) +
+        #scale_y_continuous(limits=c(0,15), breaks=seq(0,14,2)) +
+        scale_y_log10(limits=c(0.1,260), breaks=c(0.1,1,10,100), labels=NotFancy) + # 
+        scale_fill_manual(name=landcat, values=c("purple","yellow","gray","lightblue")) +
+        scale_color_manual(name="BurnHx", values=c("red","black")) +
+        theme_bw() +
+        theme(plot.margin=unit(c(0.2,0.2,0.2,0.2), "in"),
+              panel.grid.minor=element_blank(),
+              panel.grid.major=element_blank(),
+              plot.background=element_rect(colour="white", size=1),
+              panel.border=element_rect(colour="black", fill=NA, size=1),
+              text=element_text(size=13)) +
+        theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+        theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        theme(axis.title.x=element_blank()) +
+        theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        theme(plot.background=element_rect(fill='white')) +
+        theme(panel.background=element_rect(fill='white')) +
+        labs(y=param, x="") +
+        geom_point(aes(y=CH4uM, x=Year, fill=factor(FenDetail), color=factor(BurnHx)), position=position_jitterdodge(), alpha=0.2)
+        ggsave(paste0("/Users/szolkos/Documents/Research/Projects/The Polaris Project/Analyses/Figures/2020-02-09/", param,"_",landcat,".pdf"), plot=ykd_boxplot, device=NULL, path=NULL, scale=1, width=7, height=5, units="in", dpi=500, limitsize=T)
+        
+        
+    ## Plot it: Year > BurnHx*, separately LandscapeCategory -- LAKES, PONDS, STREAMS
+      landcat <- "stream"
+      #if(landcat=="fen"){clr <- "brown"}
+      if(landcat=="lake"){clr <- "lightblue"}
+      if(landcat=="pond"){clr <- "blue"}
+      if(landcat=="stream"){clr <- "darkblue"}
+      plot_df <- droplevels(na.omit(subset(ykd_sub2, select=c("Year","BurnHx","LandscapeCategory",param), ykd_sub2$LandscapeCategory==landcat)))
+      ykd_boxplot <- ggplot(plot_df, aes(y=Cond, x=Year, fill=clr, color=BurnHx)) +
+        geom_boxplot(outlier.shape=NA) +
+        #scale_y_continuous(limits=c(0.01,100), breaks=c(0.01,0.1,1,10,100)) +
+        scale_y_log10(limits=c(1,1000), breaks=c(1,10,100,1000), labels=NotFancy) + # 
+        scale_fill_manual(name=landcat, values=clr) +
+        scale_color_manual(name="BurnHx", values=c("red","black")) +
+        theme_bw() +
+        theme(plot.margin=unit(c(0.2,0.2,0.2,0.2), "in"),
+              panel.grid.minor=element_blank(),
+              panel.grid.major=element_blank(),
+              plot.background=element_rect(colour="white", size=1),
+              panel.border=element_rect(colour="black", fill=NA, size=1),
+              text=element_text(size=13)) +
+        theme(axis.title.y=element_text(margin=margin(t=0, r=10, b=0, l=0))) +
+        theme(axis.text.y=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        theme(axis.title.x=element_blank()) +
+        theme(axis.text.x=element_text(size=12, angle=0, hjust=0.5, colour="black")) +
+        theme(plot.background=element_rect(fill='white')) +
+        theme(panel.background=element_rect(fill='white')) +
+        labs(y=param, x="") +
+        geom_point(aes(y=Cond, x=Year, colour=factor(BurnHx)), position=position_jitterdodge(), alpha=0.2)
+        ggsave(paste0("/Users/szolkos/Documents/Research/Projects/The Polaris Project/Analyses/Figures/2020-02-09/", param,"_",landcat,".pdf"), plot=ykd_boxplot, device=NULL, path=NULL, scale=1, width=7, height=5, units="in", dpi=500, limitsize=T)
+        dev.off(); dev.off()
+      
+        
   # ANOVA ####
     round(tapply(ykd_lakes$PO4uM, ykd_lakes$Year, FUN=median, na.rm=T),2)
     round(tapply(ykd_lakes$PO4uM, ykd_lakes$Year, FUN=mean, na.rm=T),2)
