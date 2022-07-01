@@ -1,6 +1,6 @@
 # Wildfire and landscape controls on tundra hydrochemistry
 ## Introduction
-Source code for the manuscript: Physiographic Controls and Wildfire Effects on Aquatic Biogeochemistry in Tundra of the Yukon-Kuskokwim Delta, Alaska. DOI: 
+Source code for the manuscript: Physiographic Controls and Wildfire Effects on Aquatic Biogeochemistry in Tundra of the Yukon-Kuskokwim Delta, Alaska. DOI: https://zenodo.org/badge/latestdoi/235470761
 
 ## Authors
 - [Scott Zolkos](https://www.researchgate.net/profile/Scott-Zolkos)
